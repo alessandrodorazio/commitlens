@@ -1,3 +1,5 @@
+![Commitlens Logo](/logo.png)
+
 # CommitLens - Git Change Visualization Tool
 
 CommitLens is a powerful tool that provides natural language explanations of git diffs, making it easier to understand changes between branches or commits. It uses OpenAI's GPT models to generate clear, human-readable summaries of code changes.
