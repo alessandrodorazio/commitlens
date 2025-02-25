@@ -142,8 +142,6 @@ Both commands support the following options:
 
 [MIT](https://github.com/alessandrodorazio/commitlens/blob/main/LICENSE) © [Alessandro D'Orazio](https://github.com/alessandrodorazio)
 
-Test 
-
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
