@@ -22,7 +22,6 @@ setup(
     install_requires=[
         "openai>=1.0.0",
         "tiktoken>=0.5.0",
-        "python-dotenv>=1.0.0",
         "rich>=13.0.0",
     ],
     entry_points={

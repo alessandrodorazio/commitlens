@@ -14,7 +14,7 @@ CommitLens is a powerful tool that provides natural language explanations of git
 - **Raw Diff Mode**: View raw git diff with added statistics.
 - **Preview Mode**: Check token count and estimated cost before sending to OpenAI.
 - **Markdown Formatting**: Proper formatting and syntax highlighting in the terminal.
-- **Environment Variable Support**: Configuration using a `.env` file.
+- **Global Configuration**: Persistent configuration using a config file.
 - **Model Selection**: Choose between different OpenAI models.
 
 ## Requirements
@@ -47,7 +47,7 @@ pip install git+https://github.com/alessandrodorazio/commitlens.git
 
 ## Configuration
 
-CommitLens offers multiple ways to configure your OpenAI API key:
+CommitLens offers two ways to configure your OpenAI API key:
 
 ### 1. Using the config command (Recommended)
 
@@ -79,20 +79,9 @@ You can set the API key as an environment variable:
 export OPENAI_API_KEY=your_api_key_here
 ```
 
-### 3. Using a .env file
-
-Create a `.env` file in your current directory or in the same directory as the script:
-
-```
-OPENAI_API_KEY=your_api_key_here
-OPENAI_MODEL=gpt-4o-mini  # Optional, defaults to gpt-4o-mini
-```
-
 CommitLens will check these locations in the following order:
 1. Environment variables
 2. Config file in `~/.commitlens/config.json`
-3. `.env` file in the script directory
-4. `.env` file in the current directory
 
 ## Usage
 

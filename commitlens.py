@@ -12,9 +12,11 @@ import subprocess
 import argparse
 import tiktoken
 from pathlib import Path
-from dotenv import load_dotenv
 import textwrap
 import json
+import stat
+import re
+from openai import OpenAI
 
 # Try to import rich for Markdown rendering
 try:
@@ -29,40 +31,24 @@ HOME_DIR = Path.home()
 CONFIG_DIR = HOME_DIR / ".commitlens"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
-# Load environment variables from multiple locations
 def load_environment():
-    """Load environment variables from multiple locations in order of precedence."""
-    # 1. Check environment variables first (highest precedence)
+    """Load environment variables from various sources."""
+    # Check if API key is already set in environment
     if "OPENAI_API_KEY" in os.environ:
         return True
     
-    # 2. Check for config file in user's home directory
-    if CONFIG_FILE.exists():
+    # Check for config file in user's home directory
+    if os.path.exists(CONFIG_FILE):
         try:
-            with open(CONFIG_FILE, 'r') as f:
+            with open(CONFIG_FILE, "r") as f:
                 config = json.load(f)
                 if "OPENAI_API_KEY" in config:
                     os.environ["OPENAI_API_KEY"] = config["OPENAI_API_KEY"]
-                    if "OPENAI_MODEL" in config:
-                        os.environ["OPENAI_MODEL"] = config["OPENAI_MODEL"]
-                    return True
-        except (json.JSONDecodeError, IOError) as e:
-            print(f"Warning: Error reading config file: {e}")
-    
-    # 3. Check for .env in script directory
-    script_dir = Path(os.path.dirname(os.path.abspath(__file__)))
-    env_path = script_dir / '.env'
-    if env_path.exists():
-        load_dotenv(dotenv_path=env_path)
-        if "OPENAI_API_KEY" in os.environ:
-            return True
-    
-    # 4. Check for .env in current directory
-    current_dir_env = Path('.') / '.env'
-    if current_dir_env.exists():
-        load_dotenv(dotenv_path=current_dir_env)
-        if "OPENAI_API_KEY" in os.environ:
-            return True
+                if "OPENAI_MODEL" in config:
+                    os.environ["OPENAI_MODEL"] = config["OPENAI_MODEL"]
+                return True
+        except Exception as e:
+            print(f"Error loading config file: {e}")
     
     return False
 
@@ -104,7 +90,6 @@ def init_openai_client():
         return False
     
     try:
-        from openai import OpenAI
         client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
         return True
     except ImportError:
@@ -139,7 +124,7 @@ def get_git_diff(base_branch, compare_branch):
     """Get the git diff between two branches."""
     try:
         result = subprocess.run(
-            ["git", "diff", f"{base_branch}...{compare_branch}"],
+            ["git", "diff", base_branch, compare_branch],
             check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         )
         return result.stdout
@@ -149,31 +134,24 @@ def get_git_diff(base_branch, compare_branch):
 
 def get_diff_stats(base_branch, compare_branch):
     """Get statistics about the diff between two branches."""
-    stats = {}
+    stats = {"commits": 0, "files": 0, "insertions": 0, "deletions": 0}
     
-    # Get number of commits
     try:
+        # Get number of commits
         result = subprocess.run(
-            ["git", "rev-list", "--count", f"{base_branch}...{compare_branch}"],
+            ["git", "rev-list", "--count", f"{base_branch}..{compare_branch}"],
             check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         )
         stats["commits"] = int(result.stdout.strip())
-    except (subprocess.CalledProcessError, ValueError):
-        stats["commits"] = 0
-    
-    # Get number of files changed and lines added/deleted
-    try:
+        
+        # Get number of files changed and lines added/deleted
         result = subprocess.run(
-            ["git", "diff", "--shortstat", f"{base_branch}...{compare_branch}"],
+            ["git", "diff", "--shortstat", base_branch, compare_branch],
             check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         )
         shortstat = result.stdout.strip()
         
         # Parse the shortstat output
-        stats["files"] = 0
-        stats["insertions"] = 0
-        stats["deletions"] = 0
-        
         if shortstat:
             parts = shortstat.split(", ")
             for part in parts:
@@ -189,19 +167,18 @@ def get_diff_stats(base_branch, compare_branch):
     return stats
 
 def count_tokens(text):
-    """Count the number of tokens in the text using tiktoken."""
+    """Count the number of tokens in a text."""
     try:
-        encoding = tiktoken.get_encoding("cl100k_base")  # GPT-4 encoding
+        encoding = tiktoken.encoding_for_model("gpt-4")
         return len(encoding.encode(text))
-    except Exception as e:
-        print(f"Warning: Could not count tokens: {e}")
-        return -1  # Return -1 to indicate error
+    except Exception:
+        return -1
 
 def get_natural_language_diff(diff_text):
     """Get a natural language description of the diff using OpenAI."""
     if client is None:
         if not init_openai_client():
-            print("Error: OpenAI API key not set. Please set OPENAI_API_KEY in your environment or .env file.")
+            print("Error: OpenAI API key not set. Please set OPENAI_API_KEY in your environment or use the config command.")
             print("Alternatively, use the --raw option to see the raw diff without using OpenAI.")
             sys.exit(1)
     
@@ -276,10 +253,10 @@ def get_commit_list(base_branch, compare_branch):
     """Get a list of commits between two branches."""
     try:
         result = subprocess.run(
-            ["git", "log", "--oneline", f"{base_branch}...{compare_branch}"],
+            ["git", "log", "--oneline", f"{base_branch}..{compare_branch}"],
             check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         )
-        return result.stdout.strip().split('\n') if result.stdout.strip() else []
+        return result.stdout.strip().split("\n") if result.stdout.strip() else []
     except subprocess.CalledProcessError as e:
         print(f"Error getting commit list: {e.stderr}")
         return []
@@ -502,7 +479,7 @@ def get_commit_stats(commit_hash):
         
         # Get number of files changed and lines added/deleted
         result = subprocess.run(
-            ["git", "diff", "--shortstat", f"{commit_hash}..HEAD"],
+            ["git", "diff", "--shortstat", commit_hash, "HEAD"],
             check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         )
         shortstat = result.stdout.strip()
@@ -521,6 +498,26 @@ def get_commit_stats(commit_hash):
         pass
     
     return stats
+
+def get_openai_response(prompt, system_prompt="You are a helpful assistant."):
+    """Get a response from OpenAI API."""
+    if "OPENAI_API_KEY" not in os.environ:
+        print("Error: OpenAI API key not set.")
+        return None
+    
+    try:
+        client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+        # Get the model from environment variable or use default
+        model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"Error calling OpenAI API: {e}")
+        return None
 
 def main():
     """Main function to parse arguments and execute commands."""
@@ -605,8 +602,10 @@ def main():
             config_parser.print_help()
             sys.exit(1)
     
-    # Load environment variables from all possible locations
-    load_environment()
+    # Load environment variables
+    if not load_environment():
+        print("Error: OpenAI API key not set. Please set OPENAI_API_KEY in your environment or use the config command.")
+        return 1
     
     if not is_git_repository():
         print("Error: Not in a git repository.")
