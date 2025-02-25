@@ -14,6 +14,7 @@ import tiktoken
 from pathlib import Path
 from dotenv import load_dotenv
 import textwrap
+import json
 
 # Try to import rich for Markdown rendering
 try:
@@ -23,18 +24,77 @@ try:
 except ImportError:
     rich_available = False
 
-# Get the directory where the script is located
-script_dir = Path(os.path.dirname(os.path.abspath(__file__)))
+# Define config paths
+HOME_DIR = Path.home()
+CONFIG_DIR = HOME_DIR / ".commitlens"
+CONFIG_FILE = CONFIG_DIR / "config.json"
 
-# Load environment variables from .env file if it exists in the script directory
-env_path = script_dir / '.env'
-if env_path.exists():
-    load_dotenv(dotenv_path=env_path)
-else:
-    # Fallback to current directory for backward compatibility
+# Load environment variables from multiple locations
+def load_environment():
+    """Load environment variables from multiple locations in order of precedence."""
+    # 1. Check environment variables first (highest precedence)
+    if "OPENAI_API_KEY" in os.environ:
+        return True
+    
+    # 2. Check for config file in user's home directory
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                config = json.load(f)
+                if "OPENAI_API_KEY" in config:
+                    os.environ["OPENAI_API_KEY"] = config["OPENAI_API_KEY"]
+                    if "OPENAI_MODEL" in config:
+                        os.environ["OPENAI_MODEL"] = config["OPENAI_MODEL"]
+                    return True
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Warning: Error reading config file: {e}")
+    
+    # 3. Check for .env in script directory
+    script_dir = Path(os.path.dirname(os.path.abspath(__file__)))
+    env_path = script_dir / '.env'
+    if env_path.exists():
+        load_dotenv(dotenv_path=env_path)
+        if "OPENAI_API_KEY" in os.environ:
+            return True
+    
+    # 4. Check for .env in current directory
     current_dir_env = Path('.') / '.env'
     if current_dir_env.exists():
         load_dotenv(dotenv_path=current_dir_env)
+        if "OPENAI_API_KEY" in os.environ:
+            return True
+    
+    return False
+
+# Function to set up configuration
+def setup_config(api_key=None, model=None):
+    """Set up the configuration file in the user's home directory."""
+    # Create config directory if it doesn't exist
+    CONFIG_DIR.mkdir(exist_ok=True)
+    
+    # Load existing config if it exists
+    config = {}
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                config = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            config = {}
+    
+    # Update config with new values
+    if api_key:
+        config["OPENAI_API_KEY"] = api_key
+    if model:
+        config["OPENAI_MODEL"] = model
+    
+    # Save config
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(config, f)
+    
+    # Set permissions to restrict access
+    os.chmod(CONFIG_FILE, 0o600)
+    
+    return True
 
 # Initialize OpenAI client if API key is available
 client = None
@@ -475,6 +535,7 @@ def main():
           commitlens compare feature-branch --preview
           commitlens summary
           commitlens summary --from 797b3398a
+          commitlens config --api-key sk-your-api-key
         """)
     )
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
@@ -482,6 +543,7 @@ def main():
     # Compare command
     compare_parser = subparsers.add_parser("compare", help="Compare two branches")
     compare_parser.add_argument("branch", nargs="?", help="Branch to compare with current branch")
+    compare_parser.add_argument("base_branch", nargs="?", help="Base branch to compare against (default: current branch)")
     compare_parser.add_argument("--raw", action="store_true", help="Show raw diff output instead of natural language description")
     compare_parser.add_argument("--preview", action="store_true", help="Show token count and stats without sending to OpenAI")
     compare_parser.add_argument("--no-color", action="store_true", help="Disable colored Markdown output")
@@ -493,11 +555,58 @@ def main():
     summary_parser.add_argument("--no-color", action="store_true", help="Disable colored Markdown output")
     summary_parser.add_argument("--from", dest="from_commit", help="Show changes from this commit to HEAD")
     
+    # Config command
+    config_parser = subparsers.add_parser("config", help="Configure CommitLens settings")
+    config_parser.add_argument("--api-key", help="Set your OpenAI API key")
+    config_parser.add_argument("--model", help="Set the OpenAI model to use (default: gpt-4o-mini)")
+    config_parser.add_argument("--show", action="store_true", help="Show current configuration")
+    
     args = parser.parse_args()
     
     if not args.command:
         parser.print_help()
         sys.exit(1)
+    
+    # Handle config command
+    if args.command == "config":
+        if args.show:
+            # Show current configuration
+            if CONFIG_FILE.exists():
+                try:
+                    with open(CONFIG_FILE, 'r') as f:
+                        config = json.load(f)
+                        print("Current configuration:")
+                        if "OPENAI_API_KEY" in config:
+                            # Show only the first and last 4 characters of the API key
+                            api_key = config["OPENAI_API_KEY"]
+                            masked_key = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "****"
+                            print(f"API Key: {masked_key}")
+                        if "OPENAI_MODEL" in config:
+                            print(f"Model: {config['OPENAI_MODEL']}")
+                except (json.JSONDecodeError, IOError) as e:
+                    print(f"Error reading config file: {e}")
+            else:
+                print("No configuration file found.")
+                print(f"You can create one at {CONFIG_FILE}")
+            sys.exit(0)
+        
+        # Set configuration
+        if args.api_key or args.model:
+            if setup_config(api_key=args.api_key, model=args.model):
+                print(f"Configuration saved to {CONFIG_FILE}")
+                if args.api_key:
+                    print("API key has been set.")
+                if args.model:
+                    print(f"Model set to: {args.model}")
+            else:
+                print("Error saving configuration.")
+            sys.exit(0)
+        else:
+            config_parser.print_help()
+            sys.exit(1)
+    
+    # Load environment variables from all possible locations
+    load_environment()
     
     if not is_git_repository():
         print("Error: Not in a git repository.")
@@ -506,10 +615,11 @@ def main():
     if args.command == "compare":
         if not args.branch:
             print("Error: Please specify a branch to compare.")
-            print("Usage: commitlens compare [branch-to-compare] [--raw] [--preview] [--no-color]")
+            print("Usage: commitlens compare [branch-to-compare] [base-branch] [--raw] [--preview] [--no-color]")
             sys.exit(1)
         
-        current_branch = get_current_branch()
+        # Use specified base branch or current branch
+        base_branch = args.base_branch if args.base_branch else get_current_branch()
         
         if not branch_exists(args.branch):
             print(f"Error: Branch '{args.branch}' does not exist.")
@@ -520,7 +630,7 @@ def main():
             print("Error: Cannot use both --raw and --preview options together.")
             sys.exit(1)
         
-        result = compare_branches(current_branch, args.branch, raw=args.raw, preview=args.preview)
+        result = compare_branches(base_branch, args.branch, raw=args.raw, preview=args.preview)
         
         # Use Markdown formatting for natural language output, but not for raw diffs
         use_markdown = not args.raw and not args.no_color

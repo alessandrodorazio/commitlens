@@ -47,17 +47,52 @@ pip install git+https://github.com/alessandrodorazio/commitlens.git
 
 ## Configuration
 
-Create a `.env` file in the same directory as the script with your OpenAI API key:
+CommitLens offers multiple ways to configure your OpenAI API key:
 
-```
-OPENAI_API_KEY=your_api_key_here
+### 1. Using the config command (Recommended)
+
+After installing CommitLens, you can set your API key using the config command:
+
+```bash
+commitlens config --api-key your_api_key_here
 ```
 
-Alternatively, you can set the environment variable directly:
+You can also set the model to use:
+
+```bash
+commitlens config --model gpt-4
+```
+
+To view your current configuration:
+
+```bash
+commitlens config --show
+```
+
+This stores your configuration in `~/.commitlens/config.json` with restricted permissions.
+
+### 2. Using environment variables
+
+You can set the API key as an environment variable:
 
 ```bash
 export OPENAI_API_KEY=your_api_key_here
 ```
+
+### 3. Using a .env file
+
+Create a `.env` file in your current directory or in the same directory as the script:
+
+```
+OPENAI_API_KEY=your_api_key_here
+OPENAI_MODEL=gpt-4o-mini  # Optional, defaults to gpt-4o-mini
+```
+
+CommitLens will check these locations in the following order:
+1. Environment variables
+2. Config file in `~/.commitlens/config.json`
+3. `.env` file in the script directory
+4. `.env` file in the current directory
 
 ## Usage
 
@@ -117,6 +152,8 @@ Both commands support the following options:
 ## License
 
 [MIT](https://github.com/alessandrodorazio/commitlens/blob/main/LICENSE) © [Alessandro D'Orazio](https://github.com/alessandrodorazio)
+
+Test 
 
 ## Contributing
 
